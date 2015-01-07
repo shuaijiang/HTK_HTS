@@ -94,7 +94,7 @@ PROGS   = 	@HSLAB@ HBuild HCompV HCopy HDMan \
 		HERest HHEd HInit HLEd 	HList \
 		HLRescore HLStats HMMIRest HParse \
 		HQuant HRest HResults HSGen HSmooth \
-		HVite HMGenS HSMMAlign HMgeTool
+		HVite HMGenS HSMMAlign HMgeTool HMgeTool_lsd
 all: $(PROGS)
 
 %: %.c $(HTKLIB) 
@@ -104,6 +104,8 @@ all: $(PROGS)
 	elif [ x$@ = xHMGenS ] ; then \
 		$(CC) -o $@ $(CFLAGS) $^ $(LDFLAGS) @FLIBS@ ; \
 	elif [ x$@ = xHMgeTool ] ; then \
+		$(CC) -o $@ $(CFLAGS) $^ $(LDFLAGS) @FLIBS@ ; \
+	elif [ x$@ = xHMgeTool_lsd ] ; then \
 		$(CC) -o $@ $(CFLAGS) $^ $(LDFLAGS) @FLIBS@ ; \
 		else \
 		$(CC) -o $@ $(CFLAGS) $^ $(LDFLAGS) ; fi

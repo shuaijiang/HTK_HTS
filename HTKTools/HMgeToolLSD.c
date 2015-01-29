@@ -1268,7 +1268,7 @@ static int OneIterMgeTrain(int nIter)
    return nSent;
 }
 
-/* PerformMgeTrain: MGE training main procedur */
+/* PerformMgeTrain: MGE training main procedure */
 static void PerformMgeTrain()
 {
    int nIter, nSent;
@@ -1468,5 +1468,5 @@ static void PerformMgeAdapt()
 }
 
 /* ----------------------------------------------------------- */
-/*                      END:  HMgeTool.c                       */
+/*                      END:  HMgeToolLSD.c                    */
 /* ----------------------------------------------------------- */

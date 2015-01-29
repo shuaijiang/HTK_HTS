@@ -94,7 +94,7 @@ static double g_pfVarDynScale_xform[3] = { 1.0, 1.0, 3.0 };
 static double g_fMeanBiasScale_xform = 0.2f;
 
 /* shuaijiang (20150122): the frame length of spectral*/
-static int S = 256;
+static int S = 32;
 #define LOG2   (0.693147180559945)
 
 #define WEIGHT_MAX 1.2f
@@ -237,7 +237,7 @@ static void LoadOrigData(MgeTrnInfo * mtInfo, char *datafn)
    CloseBuffer(pbuf);
 }
 
-/* SetupMgeTrnInfo: Setup all info struct for MGE training */
+/* SetupMgeTrnInfo: Setup all info structure for MGE training */
 static void SetupMgeTrnInfo(MgeTrnInfo * mtInfo, char *labfn, char *datafn)
 {
    GenInfo *genInfo;
@@ -450,8 +450,8 @@ static void CalcMgeTrnInfo(MgeStream * mst, PdfStream * pst, int m)
    /* calculate Matrix P = R~-1 * W' = (W'UW)~-1 * W' */
    CalMatrixP(mst, pst, m);
 
-   Cholesky_Factorization(pst); /* Cholesky decomposition */
-   Forward_Substitution(pst);   /* forward substitution   */
+   Cholesky_Factorization(pst); 		/* Cholesky decomposition */
+   Forward_Substitution(pst);   		/* forward substitution   */
    Backward_Substitution(pst, m - 1);   /* backward substitution  */
 
    CalDynFeat(pst, m);
@@ -800,18 +800,19 @@ static double log_add(double x, double y)
 
 /* shuaijiang 201501 */
 /* CalOneDimPowerSpectral: Calculate the power spectral for one certain dimension and one certain frame*/
-static double CalOneDimPowerSpectral(double * lsp , int ndim, int s, int gain)
+static float CalOneDimPowerSpectral(float *lsp , int ndim, int s, int gain)
 {
 	int i;
 	double w,eq1,eq2,ap=0,sp=0;
 	eq1 = 0.0;
 	eq2 = 0.0;
 	w = s * (PI / (S - 1));
+
 	if(ndim % 2 == 0)
 	{
 		for (i = 0; i < ndim / 2; i++) {
-			eq1 += 2 * log_conv(cos(w) - cos(lsp[2 * i + gain]));
-			eq2 += 2 * log_conv(cos(w) - cos(lsp[2 * i + 1 + gain]));
+			eq1 += 2 * log_conv(cos(w) - cos(lsp[2 * i + gain+1]));
+			eq2 += 2 * log_conv(cos(w) - cos(lsp[2 * i + 1 + gain+1]));
 		}
 		eq1 += 2 * log_conv(cos(w / 2));
 		eq2 += 2 * log_conv(sin(w / 2));
@@ -821,47 +822,60 @@ static double CalOneDimPowerSpectral(double * lsp , int ndim, int s, int gain)
 	else
 	{
 		for (i = 0; i < (ndim + 1) / 2; i++)
-			eq1 += 2 * log_conv(cos(w) - cos(lsp[2 * i + gain]));
+			eq1 += 2 * log_conv(cos(w) - cos(lsp[2 * i + gain+1]));
 		for (i = 0; i < (ndim - 1) / 2; i++)
-			eq2 += 2 * log_conv(cos(w) - cos(lsp[2 * i + 1 + gain]));
+			eq2 += 2 * log_conv(cos(w) - cos(lsp[2 * i + 1 + gain+1]));
 		eq2 += 2 * log_conv(sin(w));
 
 		ap = (ndim - 1) * log(2) + log_add(eq1, eq2);
 	}
 	sp = -0.5 * ap;
 	if (gain == 1)
-		sp += lsp[0];
+		sp += lsp[1];
 	
 	return sp;
 }
 
 /* shuaijiang 201501 */
 /* CalcOneDimLogSpectralDistortion: Calculate the LSD for one certain dimension of one certain frame*/
-static double CalcOneDimLogSpectralDistortion(double * origObs, double * c, int ndim, int m)
+static double CalcOneDimLogSpectralDistortion(float * origObs, float * c, int ndim, int m)
 {
 	int i = 0, s = 0, gain = 1;
-	double diff = 0, lsd = 0, w = 0;
-	double P = 0,Q = 0;
-	double origSP, genSP;
+	double  w = 0, diff = 0, lsd = 0;
+	double P = 1,Q = 1;
+	double origSP=0, genSP=0;
+	
+	if(gain == 1)
+		ndim -= 1;
+	/*shuaijiang: 201501*/
+	/*cosLSP = CalOneFrameCosLSP(origObs,ndim)*/
 	for(s=0;s<S;s++)
 	{
-		w = (2 * s - 1) * PI / S;
-		origSP = CalOneDimPowerSpectral(origObs,ndim-1,s,gain);
-		genSP  = CalOneDimPowerSpectral(c,ndim-1,s,gain);
+		w = s * PI / (S - 1);
+		/*w = (2 * s + 1) * PI / (2 * S);*/
+		origSP = CalOneDimPowerSpectral(origObs,ndim,s,gain);
+		genSP  = CalOneDimPowerSpectral(c,ndim,s,gain);
+		P = 1;
+		Q = 1;
 		if(m % 2 == 0)
 		{
 			for (i = 0; i < ndim / 2; i++)
-				Q *=  pow(cos(w) - cos(c[2 * i + 1 + gain]),2);
-			Q *= pow(2,ndim) * pow(sin(w / 2),2);  /*shuaijiang: Bug: need to consider whether ndim is odd or even*/
-			diff = fabs(origSP - genSP) * Q / pow(exp(genSP),2) * sin(c[m]) / (cos(w)-cos(c[m]));
+				Q *=  pow(cos(w) - cos(c[2 * i + 1 + gain + 1]),2);
+			if(ndim % 2 == 0)
+				Q *= pow(2,ndim) * pow(sin(w / 2),2);
+			else
+				Q *= pow(2,ndim-1) * pow(sin(w),2);
+			diff = fabs(origSP - genSP) * Q * sin(c[m]) /(pow(exp(genSP),2) * (cos(w)-cos(c[m])));
 		}
 		else
 		{
 			for (i = 0; i < ndim / 2; i++)
-				P *= pow(cos(w) - cos(c[2 * i + gain]),2);
-			P *= pow(2,ndim) * pow(cos(w / 2),2);
-			diff = fabs(origSP - genSP) * P / pow(exp(genSP),2) * sin(c[m]) / (cos(w)- cos(c[m]));
+				P *= pow(cos(w) - cos(c[2 * i + gain + 1]),2);
+			if(ndim % 2 == 0)
+				P *= pow(2,ndim) * pow(cos(w / 2),2);
+			diff = fabs(origSP - genSP) * P  * sin(c[m]) / (pow(exp(genSP),2) * (cos(w)- cos(c[m])));
 		}
+		/*printf("s=%d:w=%lf,P=%lf,Q=%lf,origSP=%lf,genSP=%lf,diff=%lf\n",s,w,P,Q,origSP,genSP,diff);*/
 		lsd = lsd + diff;
 	}
 	lsd = lsd / (2 * S);
@@ -902,7 +916,9 @@ static int CalcUpdateRatioLSD(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * 
 		 if (nGainIdx != m || p != mtInfo->nGainStreamIndex)
 			dfobs *= CalGainWght(gain_mst->origObs[t][nGainIdx], mtInfo->fGainWghtComp);
 	  }
-
+	  /*shuaijiang: */
+	  lsd = CalcOneDimLogSpectralDistortion(mst->origObs[t], pst->C[t], pst->order, m);
+	  /*printf("CalcUpdateRatioLSD:t=%d,m=%d,lsd=%lf\n",t,m,lsd);*/
 	  /* accumulate updating ratio for mean and variance */
 	  tstart = (si >= t + 1 - nCumWinSize) ? si : t + 1 - nCumWinSize;
 	  tend = (ei <= t + 1 + nCumWinSize) ? ei : t + 1 + nCumWinSize;
@@ -910,9 +926,7 @@ static int CalcUpdateRatioLSD(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * 
 		 tt = pst->win.num * (tstart - t + mst->nInvQuaSize - 1) + l + 1;
 		 k = l * pst->order + m;
 		 tmrat = tvrat = 0.0;
-		 /*shuaijiang: */
-		 lsd = CalcOneDimLogSpectralDistortion(mst->origObs[t], pst->C[t], pst->order, k);
-		 
+
 		 for (i = tstart; i < tend; i++, tt += pst->win.num) {
 			if (mtInfo->uFlags & UPMEANS) {
 			   tmrat += mst->quasi_P[t][tt];
@@ -921,9 +935,10 @@ static int CalcUpdateRatioLSD(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * 
 			   tvrat += mst->quasi_P[t][tt] * (pst->mseq[i][k] - pst->C[i][k]);
 			}
 		 }
-		 if (mtInfo->uFlags & UPMEANS)
+		 
+		 if (mtInfo->uFlags & UPMEANS)/*shuaijiang: update the mean by MGE*/
 			mtInfo->mrat[l + 1] += dfobs * tmrat * lsd;
-		 if (mtInfo->uFlags & UPVARS)
+		 if (mtInfo->uFlags & UPVARS)/**/
 			mtInfo->vrat[l + 1] += dfobs * tvrat;
 	  }
 	}
@@ -993,7 +1008,7 @@ static void SeqPDUpdateLSD(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * pst
 
       for (; j < hmm->numStates; j++) {
          all_occ = (int) ((label->end - label->start) / mtInfo->genInfo->frameRate + 0.5);
-         /* calculate updating ratio for eah state HMM */
+         /* calculate updating ratio for each state HMM */
          occ = CalcUpdateRatioLSD(mtInfo, mst, pst, label, p, m);
 
          /* update model parameters */
@@ -1100,7 +1115,7 @@ static float CalOneDimGenErr(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * p
    diff = 0.0f;
    origStart = pst->origStart - 1;
    for (t = 1; t <= pst->T; t++) {
-      diff = log(fabs(pst->C[t][m])) - log(fabs(mst->origObs[t + origStart][m])); /*calculate the Euclidean distance by shuaijiang*/
+      diff = pst->C[t][m] - mst->origObs[t + origStart][m]; /*calculate the Euclidean distance by shuaijiang*/
       wt = 1.0f;
       /* gain weighting */
       if (mtInfo->pbGainWght[p]) {
@@ -1112,6 +1127,36 @@ static float CalOneDimGenErr(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * p
    return err;
 }
 
+/* CalOneDimGenErrLSD: Calculate the generation error using LSD for certain dimension */
+static float CalOneDimGenErrLSD(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * pst, int p, int m)
+{
+   int t, origStart, nGainIdx;
+   float diff, err = 0.0f, wt;
+   MgeStream *gain_mst;
+   int gain = 1;
+   double C_log, A_log;
+   /* for gain weight */
+   nGainIdx = mtInfo->nGainDimIndex;
+   gain_mst = &(mtInfo->mst[mtInfo->nGainStreamIndex]);
+
+   diff = 0.0f;
+   origStart = pst->origStart - 1;
+   for (t = 1; t <= pst->T; t++) {
+	  C_log = CalOneDimPowerSpectral(pst->C[t],pst->order,m,gain);
+	  A_log = CalOneDimPowerSpectral(mst->origObs[t + origStart],pst->order,m,gain);
+	  diff  = C_log - A_log;
+      /*diff = log(fabs(pst->C[t][m])) - log(fabs(mst->origObs[t + origStart][m])); calculate the Euclidean distance by shuaijiang*/
+	  
+      wt = 1.0f;
+      /* gain weighting */
+      if (mtInfo->pbGainWght[p]) {
+         if (nGainIdx != m || p != mtInfo->nGainStreamIndex)
+            wt *= CalGainWght(gain_mst->origObs[t][nGainIdx], mtInfo->fGainWghtComp);
+      }
+      err += diff * diff * wt;
+   }
+   return err;
+}
 /* AccOneDimGenErr: Accumulate the generation error for certain dimension */
 static void AccOneDimGenErr(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * pst, int p, int m)
 {
@@ -1123,7 +1168,7 @@ static void AccOneDimGenErr(MgeTrnInfo * mtInfo, MgeStream * mst, PdfStream * ps
       mtInfo->statInfo->currErrAcc[p][m] += fErr;
 }
 
-/* CalGenErrorForBA: Calcuate the total generation error for current generated segment/utterance */
+/* CalGenErrorForBA: Calculate the total generation error for current generated segment/utterance */
 static float CalGenErrorForBA(MgeTrnInfo * mtInfo, GenInfo * genInfo)
 {
    MgeStream *mst;
@@ -1163,12 +1208,14 @@ static void HmmTrainByMge(MgeTrnInfo * mtInfo, float stepSize, Boolean bOnlyAccE
    for (p = 1; p <= genInfo->nPdfStream[0]; p++) {
       mst = &(mtInfo->mst[p]);
       pst = &(genInfo->pst[p]);
+	  /*shuaijiang: calculate the generated parameters before MGE update*/
       for (m = 1; m <= pst->order; m += 1) {
          if (mtInfo->pbMTrn[p] && !bOnlyAccErr)
             CalcMgeTrnInfo(mst, pst, m);        /* calculate the info for MGE updating */
          else if (mtInfo->pbAccErr[p])
             ParaGenOneDim(pst, m, FALSE);
-
+	  }
+	  for(m = 1; m <= pst->order; m += 1) {
          /* calculation of MGE updating ratio */
          if (mtInfo->pbMTrn[p] && !bOnlyAccErr) {
 			 /* shuaijiang : LSD for MGC stream, Euclidean for LF0 stream*/
